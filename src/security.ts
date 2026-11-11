@@ -15,11 +15,22 @@ export class HttpError extends Error {
 export const fail = (status: number, message: string): never => {
   throw new HttpError(status, message);
 };
-export const origins = (
-  process.env.CORS_ALLOWED_ORIGINS || "http://localhost:3000"
-)
-  .split(",")
-  .map((x) => x.trim());
+// The native shells have fixed, trusted local origins. They must remain
+// available even when the deployment also configures public web origins.
+const platformOrigins = [
+  "http://localhost:3000",
+  "http://localhost",
+  "https://localhost",
+  "capacitor://localhost",
+  "taskflow://app",
+];
+export const origins = [
+  ...new Set(
+    [...platformOrigins, ...(process.env.CORS_ALLOWED_ORIGINS || "").split(",")]
+      .map((value) => value.trim())
+      .filter(Boolean),
+  ),
+];
 export async function sessionFor(raw?: string) {
   if (!raw) return null;
   const s = await db.session.findUnique({
