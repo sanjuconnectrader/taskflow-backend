@@ -5,6 +5,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   DeleteObjectCommand,
+  CopyObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { z } from "zod";
@@ -90,21 +91,19 @@ files.post("/:wid/upload", async (req, res) => {
   const f = await db.attachment.create({
     data: { ...data, key, workspaceId: wid, uploaderId: res.locals.user.id },
   });
-  res
-    .status(201)
-    .json({
-      id: f.id,
-      url: await getSignedUrl(
-        s3,
-        new PutObjectCommand({
-          Bucket: bucket(),
-          Key: key,
-          ContentType: data.mime,
-          ContentLength: data.size,
-        }),
-        { expiresIn: 120 },
-      ),
-    });
+  res.status(201).json({
+    id: f.id,
+    url: await getSignedUrl(
+      s3,
+      new PutObjectCommand({
+        Bucket: bucket(),
+        Key: key,
+        ContentType: data.mime,
+        ContentLength: data.size,
+      }),
+      { expiresIn: 120 },
+    ),
+  });
 });
 files.post("/:wid/:fid/confirm", async (req, res) => {
   const wid = id.parse(req.params.wid);
@@ -117,6 +116,10 @@ files.post("/:wid/:fid/confirm", async (req, res) => {
     },
   });
   if (!f) fail(404, "File not found.");
+  if (f!.confirmed) {
+    res.json({ ok: true });
+    return;
+  }
   const head = await s3.send(
     new HeadObjectCommand({ Bucket: bucket(), Key: f!.key }),
   );
@@ -127,6 +130,7 @@ files.post("/:wid/:fid/confirm", async (req, res) => {
       Bucket: bucket(),
       Key: f!.key,
       Range: "bytes=0-511",
+      IfMatch: head.ETag,
     }),
   );
   const bytes = Buffer.from(await result.Body!.transformToByteArray());
@@ -146,10 +150,26 @@ files.post("/:wid/:fid/confirm", async (req, res) => {
     await db.attachment.delete({ where: { id: f!.id } });
     fail(400, "File content does not match the allowed format.");
   }
-  await db.attachment.update({
-    where: { id: f!.id },
-    data: { confirmed: true },
+  // Publish under a new key so a still-valid staging PUT URL cannot alter a confirmed file.
+  const publishedKey = `${wid}/confirmed/${crypto.randomUUID()}`;
+  await s3.send(
+    new CopyObjectCommand({
+      Bucket: bucket(),
+      Key: publishedKey,
+      CopySource: `${bucket()}/${f!.key}`,
+      CopySourceIfMatch: head.ETag,
+      MetadataDirective: "COPY",
+    }),
+  );
+  const published = await db.attachment.updateMany({
+    where: { id: f!.id, confirmed: false },
+    data: { confirmed: true, key: publishedKey },
   });
+  if (!published.count)
+    await s3.send(
+      new DeleteObjectCommand({ Bucket: bucket(), Key: publishedKey }),
+    );
+  await s3.send(new DeleteObjectCommand({ Bucket: bucket(), Key: f!.key }));
   res.json({ ok: true });
 });
 files.get("/:wid/:fid/download", async (req, res) => {
