@@ -20,7 +20,7 @@ for (const url of [runtime, direct]) {
     throw new Error("Enter the database password in .env.supabase first.");
   url.searchParams.set("schema", "taskflow");
   url.searchParams.set("sslmode", "verify-full");
-  url.searchParams.set("sslrootcert", "certs/supabase-ca.crt");
+  url.searchParams.set("sslrootcert", "prod-ca-2021.crt");
 }
 if (direct.port === "6543")
   throw new Error(

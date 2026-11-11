@@ -4,7 +4,7 @@ TaskFlow uses Supabase as managed PostgreSQL through Prisma. Express continues t
 
 1. Keep credentials in ignored `backend/.env.supabase`. Use your project's transaction pooler (6543) for `DATABASE_URL` and session pooler (5432) for `DIRECT_URL`. Percent-encode special characters in the password.
 2. Use `schema=taskflow` so application tables, including password hashes and sessions, are separate from the default public Data API schema. Do not add `taskflow` to Supabase's exposed API schemas.
-3. The tracked `certs/supabase-ca.crt` is a public Supabase CA certificate, not a secret. Both connection strings use `sslmode=verify-full&sslrootcert=certs/supabase-ca.crt`; certificate/hostname verification remains enabled.
+3. The tracked `prod-ca-2021.crt` is a public Supabase CA certificate, not a secret. Both connection strings use `sslmode=verify-full&sslrootcert=prod-ca-2021.crt`; certificate/hostname verification remains enabled.
 4. Run `npm run db:connect:supabase` from the backend directory. It authenticates first, creates/protects the `taskflow` schema, applies existing migrations without resetting data, verifies Prisma reads through the runtime pooler, and then updates the active ignored `.env`. Authentication/migration failures leave the active `.env` unchanged.
 5. The helper retains the previous local configuration in ignored `.env.before-supabase` and adds a local `TEST_DATABASE_URL` so tests do not touch the cloud database. It does not copy local accounts or seed demo data into Supabase.
 6. Restart `npm run dev`, then run `npm run db:check` and open `http://localhost:4000/health`. Register a new account to start using the cloud-backed workspace. Web, desktop and mobile still communicate with the same Express API.
