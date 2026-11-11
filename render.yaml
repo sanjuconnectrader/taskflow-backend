@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: taskflow-api
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    preDeployCommand: npm run db:migrate
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: API_PUBLIC_URL
+        sync: false
+      - key: APP_WEB_ORIGIN
+        sync: false
+  - type: cron
+    name: taskflow-deadline-reminders
+    runtime: node
+    schedule: '0 * * * *'
+    buildCommand: npm ci && npm run db:generate
+    startCommand: npm run reminders
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: DATABASE_URL
+        sync: false
+      - key: NODE_ENV
+        value: production

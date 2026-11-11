@@ -1,0 +1,214 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+}
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+enum Status {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  COMPLETED
+  CANCELLED
+}
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+model User {
+  id String @id @default(uuid()) @db.Uuid
+  username String @unique
+  email String @unique
+  displayName String
+  passwordHash String
+  platformAdmin Boolean @default(false)
+  preferences Json @default("{}")
+  createdAt DateTime @default(now())
+  sessions Session[]
+  memberships WorkspaceMember[]
+  assignments TaskAssignee[]
+  notifications Notification[]
+}
+model Session {
+  id String @id @default(uuid()) @db.Uuid
+  tokenHash String @unique
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  @@index([userId])
+}
+model Workspace {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  description String @default("")
+  logo String?
+  archived Boolean @default(false)
+  createdAt DateTime @default(now())
+  members WorkspaceMember[]
+  projects Project[]
+  tasks Task[]
+  comments Comment[]
+  activities Activity[]
+  files Attachment[]
+}
+model WorkspaceMember {
+  workspaceId String @db.Uuid
+  userId String @db.Uuid
+  role Role @default(MEMBER)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([workspaceId, userId])
+  @@index([userId])
+}
+model Project {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name String
+  description String @default("")
+  color String @default("#4F46E5")
+  dueDate String?
+  archived Boolean @default(false)
+  createdAt DateTime @default(now())
+  tasks Task[]
+  comments Comment[]
+  @@index([workspaceId])
+}
+model Task {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId String @db.Uuid
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creatorId String @db.Uuid
+  title String
+  description String @default("")
+  status Status @default(TODO)
+  priority Priority @default(MEDIUM)
+  dueDate String?
+  startDate String?
+  tags String[] @default([])
+  parentId String? @db.Uuid
+  parent Task? @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks Task[] @relation("Subtasks")
+  archived Boolean @default(false)
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  completedAt DateTime?
+  assignees TaskAssignee[]
+  checklist ChecklistItem[]
+  comments Comment[]
+  files Attachment[]
+  @@index([workspaceId, status, dueDate])
+  @@index([projectId])
+}
+model TaskAssignee {
+  taskId String @db.Uuid
+  userId String @db.Uuid
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([taskId, userId])
+  @@index([userId])
+}
+model ChecklistItem {
+  id String @id @default(uuid()) @db.Uuid
+  taskId String @db.Uuid
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  text String
+  done Boolean @default(false)
+}
+model Comment {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskId String? @db.Uuid
+  task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  projectId String? @db.Uuid
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  authorId String @db.Uuid
+  authorName String
+  body String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([workspaceId, createdAt])
+}
+model Attachment {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskId String @db.Uuid
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploaderId String @db.Uuid
+  name String
+  key String @unique
+  mime String
+  size Int
+  confirmed Boolean @default(false)
+  createdAt DateTime @default(now())
+  @@index([workspaceId])
+}
+model Notification {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String @db.Uuid
+  title String
+  taskId String? @db.Uuid
+  dedupeKey String? @unique
+  read Boolean @default(false)
+  createdAt DateTime @default(now())
+  @@index([userId, workspaceId, read])
+}
+model Activity {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actorId String @db.Uuid
+  actorName String
+  action String
+  target String
+  createdAt DateTime @default(now())
+  @@index([workspaceId, createdAt])
+}
+model RecoveryRequest {
+  id String @id @default(uuid()) @db.Uuid
+  reference String @unique
+  userId String? @db.Uuid
+  explanation String
+  status String @default("PENDING")
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  reviewedBy String? @db.Uuid
+  reviewedAt DateTime?
+  resolvedAt DateTime?
+  internalNotes String?
+  authorization ResetAuthorization?
+  @@index([userId, status])
+}
+model ResetAuthorization {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @unique @db.Uuid
+  request RecoveryRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  tokenHash String @unique
+  expiresAt DateTime
+  usedAt DateTime?
+}
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+  actorId String? @db.Uuid
+  action String
+  targetId String?
+  metadata Json @default("{}")
+  createdAt DateTime @default(now())
+}
