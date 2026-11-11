@@ -12,7 +12,7 @@ jobs:
     env:
       NODE_ENV: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -39,7 +39,7 @@ jobs:
         run: |
           rules=$(gh api "repos/$GITHUB_REPOSITORY/environments/production" --jq '[.protection_rules[] | select(.type == "required_reviewers")] | length')
           test "$rules" -gt 0 || { echo "Configure required reviewers on the production environment before production releases."; exit 1; }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: node -e "if(process.env.GITHUB_REF_NAME!=='v'+require('./package.json').version)throw Error('Tag must match package version')"
       - name: Deploy the validated commit to Render
         env:
