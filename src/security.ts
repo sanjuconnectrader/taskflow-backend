@@ -18,6 +18,7 @@ export const fail = (status: number, message: string): never => {
 // The native shells have fixed, trusted local origins. They must remain
 // available even when the deployment also configures public web origins.
 const platformOrigins = [
+  "https://taskflow-web-ten.vercel.app",
   "http://localhost:3000",
   "http://localhost",
   "https://localhost",
@@ -26,7 +27,7 @@ const platformOrigins = [
 ];
 export const origins = [
   ...new Set(
-    [...platformOrigins, ...(process.env.CORS_ALLOWED_ORIGINS || "").split(",")]
+    [...platformOrigins, process.env.APP_WEB_ORIGIN || "", ...(process.env.CORS_ALLOWED_ORIGINS || "").split(",")]
       .map((value) => value.trim())
       .filter(Boolean),
   ),
@@ -111,7 +112,7 @@ export function cookieOptions() {
   return {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: (process.env.COOKIE_SAME_SITE === "none" ? "none" : "lax") as
+    sameSite: ((process.env.COOKIE_SAME_SITE || (process.env.NODE_ENV === "production" ? "none" : "lax")) === "none" ? "none" : "lax") as
       "none" | "lax",
     path: "/",
     maxAge: 1000 * 60 * 60 * 24 * 30,
