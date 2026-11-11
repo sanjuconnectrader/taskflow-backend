@@ -17,7 +17,7 @@
 
 ## Release semantics
 
-Downloadable files use a clearly marked local prerelease, not a production deployment. Windows calls the local API by default. Android release requires an operator HTTPS API configured on the login screen. The separate `.dev` debug package can use `adb reverse` with the local API. All clients can use one shared API/database.
+Downloadable files use a clearly marked local prerelease, not a production deployment. Windows calls the local API by default. Android release requires an operator HTTPS API configured at build time. The separate `.dev` debug package can use `adb reverse` with the local API. All clients can use one shared API/database.
 
 ## Not verified / not completed
 

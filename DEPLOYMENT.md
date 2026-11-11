@@ -107,4 +107,4 @@ GitHub returned HTTP 422 when configuring required-reviewer protection on these 
 
 The explicitly requested downloadable local builds use a separate `local-2026-11-11` prerelease tag. It does not match the production `v*.*.*` workflow trigger. These local artifacts can therefore be downloaded without pretending production hosting or approval protection has been configured.
 
-All sign-in screens include API connection settings. Set the same HTTPS API origin on every client after your operator deploys it. The Android release cannot call the default HTTP localhost API; use the separate local debug APK and `adb reverse tcp:4000 tcp:4000` for local development.
+API connection settings are removed from every sign-in screen. Configure `NEXT_PUBLIC_API_URL` with the shared HTTPS API before building the frontend and native packages. The Android release cannot call the default HTTP localhost API; use the separate local debug APK and `adb reverse tcp:4000 tcp:4000` for local development.
