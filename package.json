@@ -15,6 +15,9 @@
     "test:integration": "vitest run tests/integration.test.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
+    "db:check": "tsx scripts/check-database.ts",
+    "db:verify": "tsx scripts/verify-database.ts",
+    "db:connect:supabase": "tsx scripts/connect-supabase.ts",
     "db:seed": "tsx prisma/seed.ts",
     "reminders": "tsx src/reminders.ts",
     "admin:bootstrap": "tsx scripts/bootstrap.ts"

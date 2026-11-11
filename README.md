@@ -2,6 +2,8 @@
 
 Node.js 22 / Express 5 / TypeScript / Prisma 7 / PostgreSQL. Shared backend for TaskFlow web, desktop and Android. No SMTP dependency.
 
+For Supabase-hosted PostgreSQL, see [SUPABASE.md](SUPABASE.md). `npm run db:check` verifies the configured database; `npm run db:verify` checks rolled-back Prisma writes. Supabase credentials stay in ignored environment files. Prisma migrations use the session pooler through `DIRECT_URL`; runtime queries use `DATABASE_URL`.
+
 ## Local development
 
 1. Install Node 22.14+, Git and PostgreSQL 17+. Create a database role and start PostgreSQL on port 5432.
