@@ -1,0 +1,1 @@
+ALTER TABLE "Workspace" ADD COLUMN "companyEmail" TEXT, ADD COLUMN "phone" TEXT, ADD COLUMN "website" TEXT, ADD COLUMN "address" TEXT, ADD COLUMN "industry" TEXT, ADD COLUMN "companySize" TEXT, ADD COLUMN "timezone" TEXT NOT NULL DEFAULT 'UTC';

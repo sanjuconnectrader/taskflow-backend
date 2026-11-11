@@ -3,7 +3,7 @@ import argon2 from "argon2";
 import { z } from "zod";
 import { rateLimit } from "express-rate-limit";
 import { db, userSelect } from "./db.js";
-import { authenticate, cookieOptions, fail, hash, token } from "./security.js";
+import { authenticate, cookieOptions, fail, tokenDigest, token } from "./security.js";
 import { email, password } from "./validation.js";
 export const auth = Router();
 const limit = rateLimit({
@@ -22,7 +22,7 @@ async function issue(
   await db.session.create({
     data: {
       userId,
-      tokenHash: hash(raw),
+      tokenHash: tokenDigest(raw),
       device: device.slice(0, 200),
       expiresAt: new Date(Date.now() + 30 * 86400000),
     },
@@ -44,6 +44,17 @@ auth.post("/register", limit, async (req, res) => {
       confirmPassword: z.string(),
       acceptedTerms: z.literal(true),
       native: z.boolean().default(false),
+      fullName: z.string().trim().min(1).max(100).optional(),
+      designation: z.string().trim().max(100).optional(),
+      company: z.object({
+        name: z.string().trim().min(1).max(150), email,
+        phone: z.string().trim().max(40).optional(),
+        website: z.union([z.url().refine(value=>/^https?:\/\//i.test(value)),z.literal("")]).optional(),
+        address: z.string().trim().max(500).optional(),
+        industry: z.string().trim().max(100).optional(),
+        companySize: z.string().trim().max(40).optional(),
+        timezone: z.string().min(1).max(100).refine(v => { try { new Intl.DateTimeFormat('en', {timeZone:v}); return true; } catch { return false; } }),
+      }).optional(),
     })
     .parse(req.body);
   if (data.password !== data.confirmPassword)
@@ -56,15 +67,20 @@ auth.post("/register", limit, async (req, res) => {
       data: {
         username: data.username,
         email: data.email,
-        displayName: data.username,
+        displayName: data.fullName || data.username,
         passwordHash,
       },
       select: userSelect,
     });
     await tx.workspace.create({
       data: {
-        name: `${data.username}'s Workspace`,
-        members: { create: { userId: u.id, role: "OWNER" } },
+        name: data.company?.name || `${data.username}'s Workspace`,
+        companyEmail: data.company?.email, phone: data.company?.phone,
+        website: data.company?.website, address: data.company?.address,
+        industry: data.company?.industry, companySize: data.company?.companySize,
+        timezone: data.company?.timezone || "UTC",
+        enforceProjectAccess: !!data.company,
+        members: { create: { userId: u.id, role: "OWNER", designation: data.designation } },
       },
     });
     return u;
@@ -145,16 +161,21 @@ auth.post("/password", authenticate, async (req, res) => {
   });
   if (!(await argon2.verify(u.passwordHash, data.currentPassword)))
     fail(400, "Current password is incorrect.");
+  const newToken = token();
   await db.$transaction([
     db.user.update({
       where: { id: u.id },
-      data: { passwordHash: await argon2.hash(data.password) },
+      data: { passwordHash: await argon2.hash(data.password, { type: argon2.argon2id }), mustChangePassword: false },
     }),
     db.session.deleteMany({ where: { userId: u.id } }),
+    ...(u.mustChangePassword ? [db.session.create({ data: { userId: u.id, tokenHash: tokenDigest(newToken), device: (req.get("user-agent") || "Unknown").slice(0, 200), expiresAt: new Date(Date.now() + 30 * 86400000) } })] : []),
     db.auditLog.create({ data: { actorId: u.id, action: "password:changed" } }),
   ]);
-  res.clearCookie("taskflow_session", cookieOptions());
-  res.json({ ok: true });
+  const native = Boolean(req.headers.authorization?.startsWith("Bearer "));
+  if (!native && u.mustChangePassword) res.cookie("taskflow_session", newToken, cookieOptions());
+  else if (!native) res.clearCookie("taskflow_session", cookieOptions());
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ ok: true, ...(native && u.mustChangePassword ? { token: newToken } : {}) });
 });
 auth.patch("/profile", authenticate, async (req, res) => {
   const data = z
@@ -291,7 +312,7 @@ recovery.post("/:id/approve", authenticate, async (req, res) => {
     await tx.resetAuthorization.create({
       data: {
         requestId: request!.id,
-        tokenHash: hash(raw),
+        tokenHash: tokenDigest(raw),
         expiresAt: new Date(Date.now() + 900000),
       },
     });
@@ -324,7 +345,7 @@ recovery.post("/reset", limit, async (req, res) => {
   const passwordHash = await argon2.hash(data.password);
   await db.$transaction(async (tx) => {
     const a = await tx.resetAuthorization.findUnique({
-      where: { tokenHash: hash(data.authorization) },
+      where: { tokenHash: tokenDigest(data.authorization) },
       include: { request: true },
     });
     if (!a || a.usedAt || a.expiresAt < new Date() || !a.request.userId)

@@ -22,7 +22,15 @@ import { workspaceRoutes } from "./workspaces.js";
 import { reports } from "./reports.js";
 import { files } from "./files.js";
 import { openapi } from "./openapi.js";
+import {storageAdmin} from './storage/admin.js';
+import {updates} from './updates.js';
 export const app = express();
+// Keep the cross-platform date-only API contract when Prisma stores native DATE columns.
+app.set('json replacer',(key:string,value:unknown)=>{
+  if((key==='dueDate'||key==='startDate')&&typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T/.test(value))return value.slice(0,10);
+  if(key==='preferences'&&value===null)return {};
+  return value;
+});
 export const server = createServer(app);
 export const io = new Server(server, {
   cors: { origin: origins, credentials: true },
@@ -68,6 +76,8 @@ app.use("/api/v1/recovery", recovery);
 app.use("/api/v1/workspaces", workspaceRoutes(io));
 app.use("/api/v1/reports", reports);
 app.use("/api/v1/files", files);
+app.use('/api/v1/storage',storageAdmin);
+app.use('/api/v1/updates',updates);
 app.use((req, res) =>
   res.status(404).json({ error: { message: "Endpoint not found." } }),
 );
@@ -78,6 +88,7 @@ app.use(
     res: express.Response,
     _next: express.NextFunction,
   ) => {
+    if(res.headersSent){req.log.error({code:err.code,name:err.name},'Stream failed');res.end();return;}
     if (err instanceof ZodError) {
       res
         .status(400)
@@ -134,7 +145,7 @@ io.use(async (socket, next) => {
     const session = await sessionFor(
       socket.handshake.auth.token || cookies.taskflow_session,
     );
-    if (!session) return next(new Error("Unauthorized"));
+    if (!session || session.user.mustChangePassword) return next(new Error("Unauthorized"));
     socket.data.userId = session.userId;
     socket.data.raw = socket.handshake.auth.token || cookies.taskflow_session;
     next();
@@ -146,7 +157,8 @@ io.on("connection", (socket) => {
   socket.join(`user:${socket.data.userId}`);
   socket.on("workspace:join", async (wid: string, ack?: Function) => {
     try {
-      if (!(await sessionFor(socket.data.raw))) throw new Error("Expired");
+      const session = await sessionFor(socket.data.raw);
+      if (!session || session.user.mustChangePassword) throw new Error("Expired");
       await membership(wid, socket.data.userId);
       for (const room of socket.rooms)
         if (room.startsWith("workspace:")) socket.leave(room);
@@ -158,7 +170,8 @@ io.on("connection", (socket) => {
   });
   const check = setInterval(async () => {
     try {
-      if (!(await sessionFor(socket.data.raw))) socket.disconnect(true);
+      const session = await sessionFor(socket.data.raw);
+      if (!session || session.user.mustChangePassword) socket.disconnect(true);
     } catch {
       socket.disconnect(true);
     }

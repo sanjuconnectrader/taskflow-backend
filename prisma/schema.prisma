@@ -9,11 +9,15 @@ enum Role {
   ADMIN
   MEMBER
   VIEWER
+  PROJECT_MANAGER
+  TEAM_LEAD
+  EMPLOYEE
 }
 enum Status {
   TODO
   IN_PROGRESS
   IN_REVIEW
+  BLOCKED
   COMPLETED
   CANCELLED
 }
@@ -29,8 +33,9 @@ model User {
   email String @unique
   displayName String
   passwordHash String
+  mustChangePassword Boolean @default(false)
   platformAdmin Boolean @default(false)
-  preferences Json @default("{}")
+  preferences Json?
   createdAt DateTime @default(now())
   sessions Session[]
   memberships WorkspaceMember[]
@@ -39,19 +44,28 @@ model User {
 }
 model Session {
   id String @id @default(uuid()) @db.Uuid
-  tokenHash String @unique
+  tokenHash Bytes @unique @db.ByteA
   userId String @db.Uuid
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   device String
   createdAt DateTime @default(now())
   expiresAt DateTime
   @@index([userId])
+  @@index([expiresAt])
 }
 model Workspace {
   id String @id @default(uuid()) @db.Uuid
   name String
   description String @default("")
   logo String?
+  companyEmail String?
+  phone String?
+  website String?
+  address String?
+  industry String?
+  companySize String?
+  timezone String @default("UTC")
+  enforceProjectAccess Boolean @default(false)
   archived Boolean @default(false)
   createdAt DateTime @default(now())
   members WorkspaceMember[]
@@ -65,9 +79,17 @@ model WorkspaceMember {
   workspaceId String @db.Uuid
   userId String @db.Uuid
   role Role @default(MEMBER)
+  employeeId String?
+  designation String?
+  department String?
+  phone String?
+  joiningDate DateTime? @db.Date
+  employmentStatus String @default("ACTIVE")
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectMemberships ProjectMember[]
   @@id([workspaceId, userId])
+  @@unique([workspaceId, employeeId])
   @@index([userId])
 }
 model Project {
@@ -77,12 +99,24 @@ model Project {
   name String
   description String @default("")
   color String @default("#4F46E5")
-  dueDate String?
+  dueDate DateTime? @db.Date
   archived Boolean @default(false)
+  restrictMembership Boolean @default(false)
   createdAt DateTime @default(now())
   tasks Task[]
   comments Comment[]
+  members ProjectMember[]
+  @@unique([id, workspaceId])
   @@index([workspaceId])
+}
+model ProjectMember {
+  projectId String @db.Uuid
+  workspaceId String @db.Uuid
+  userId String @db.Uuid
+  project Project @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  member WorkspaceMember @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Cascade)
+  @@id([projectId, userId])
+  @@index([workspaceId, userId])
 }
 model Task {
   id String @id @default(uuid()) @db.Uuid
@@ -95,8 +129,9 @@ model Task {
   description String @default("")
   status Status @default(TODO)
   priority Priority @default(MEDIUM)
-  dueDate String?
-  startDate String?
+  requiresReview Boolean @default(false)
+  dueDate DateTime? @db.Date
+  startDate DateTime? @db.Date
   tags String[] @default([])
   parentId String? @db.Uuid
   parent Task? @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
@@ -127,6 +162,7 @@ model ChecklistItem {
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
   text String
   done Boolean @default(false)
+  @@index([taskId])
 }
 model Comment {
   id String @id @default(uuid()) @db.Uuid
@@ -142,6 +178,8 @@ model Comment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([workspaceId, createdAt])
+  @@index([taskId, createdAt])
+  @@index([projectId, createdAt])
 }
 model Attachment {
   id String @id @default(uuid()) @db.Uuid
@@ -156,6 +194,12 @@ model Attachment {
   size Int
   confirmed Boolean @default(false)
   createdAt DateTime @default(now())
+  locationId Int?
+  location StorageLocation? @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  optimizeImage Boolean @default(false)
+  expiresAt DateTime @default(dbgenerated("(now() + '24 hours'::interval)"))
+  processingToken String? @db.Uuid
+  processingExpiresAt DateTime?
   @@index([workspaceId])
 }
 model Notification {
@@ -164,11 +208,15 @@ model Notification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspaceId String @db.Uuid
   title String
+  message String @default("")
+  type String @default("GENERAL")
   taskId String? @db.Uuid
-  dedupeKey String? @unique
+  projectId String? @db.Uuid
+  dedupeKey Bytes? @unique @db.ByteA
   read Boolean @default(false)
   createdAt DateTime @default(now())
   @@index([userId, workspaceId, read])
+  @@index([read, createdAt])
 }
 model Activity {
   id String @id @default(uuid()) @db.Uuid
@@ -180,6 +228,7 @@ model Activity {
   target String
   createdAt DateTime @default(now())
   @@index([workspaceId, createdAt])
+  @@index([createdAt])
 }
 model RecoveryRequest {
   id String @id @default(uuid()) @db.Uuid
@@ -200,15 +249,46 @@ model ResetAuthorization {
   id String @id @default(uuid()) @db.Uuid
   requestId String @unique @db.Uuid
   request RecoveryRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  tokenHash String @unique
+  tokenHash Bytes @unique @db.ByteA
   expiresAt DateTime
   usedAt DateTime?
+  @@index([expiresAt])
 }
 model AuditLog {
   id String @id @default(uuid()) @db.Uuid
   actorId String? @db.Uuid
   action String
   targetId String?
-  metadata Json @default("{}")
+  metadata Json?
   createdAt DateTime @default(now())
+  @@index([createdAt])
+}
+enum StorageProvider {
+  SUPABASE
+  S3
+}
+model StorageLocation {
+  id Int @id @default(autoincrement())
+  provider StorageProvider
+  bucket String
+  attachments Attachment[]
+  deletions StorageDeletion[]
+  @@unique([provider,bucket])
+}
+model StorageDeletion {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  locationId Int?
+  location StorageLocation? @relation(fields: [locationId],references:[id],onDelete:Restrict)
+  key String
+  createdAt DateTime @default(now())
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  lastError String? @db.VarChar(80)
+  @@unique([locationId,key])
+  @@index([nextAttemptAt,createdAt])
+}
+model MaintenanceLease {
+  name String @id @db.VarChar(80)
+  token String @db.Uuid
+  expiresAt DateTime
 }

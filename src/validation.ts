@@ -18,17 +18,20 @@ export const status = z.enum([
   "TODO",
   "IN_PROGRESS",
   "IN_REVIEW",
+  "BLOCKED",
   "COMPLETED",
   "CANCELLED",
 ]);
+export const dateValue=date.transform(value=>new Date(value+'T00:00:00.000Z'));
 export const taskInput = z.object({
   title: z.string().trim().min(1).max(250),
   description: z.string().max(20000).default(""),
   projectId: id,
   status: status.default("TODO"),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
-  dueDate: date.nullable().optional(),
-  startDate: date.nullable().optional(),
+  requiresReview: z.boolean().default(false),
+  dueDate: dateValue.nullable().optional(),
+  startDate: dateValue.nullable().optional(),
   assigneeIds: z.array(id).max(50).default([]),
   tags: z.array(z.string().max(40)).max(20).default([]),
   checklist: z
@@ -49,5 +52,5 @@ export const projectInput = z.object({
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/)
     .default("#4F46E5"),
-  dueDate: date.nullable().optional(),
+  dueDate: dateValue.nullable().optional(),
 });
