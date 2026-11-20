@@ -1,6 +1,6 @@
 {
   "name": "taskflow-backend",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -52,9 +52,13 @@
     "@types/supertest": "^6.0.3",
     "@types/swagger-ui-express": "^4.1.8",
     "prisma": "^7.10.1",
+    "socket.io-client": "^4.8.1",
     "supertest": "^7.1.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "effect": "3.22.1"
   }
 }

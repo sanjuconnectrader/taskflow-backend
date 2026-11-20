@@ -1,6 +1,8 @@
 import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
 import supertest from "supertest";
-import { app, io } from "../src/app.js";
+import {io as connect} from "socket.io-client";
+import type {AddressInfo} from "node:net";
+import { app, io, server } from "../src/app.js";
 import { db } from "../src/db.js";
 import {sendReminders} from '../src/reminders.js';
 const api = supertest(app);
@@ -30,6 +32,7 @@ async function register(name: string) {
   return r.body;
 }
 beforeAll(async () => {
+  await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
   owner = await register("owner");
   other = await register("other");
   viewer = await register("viewer");
@@ -74,16 +77,20 @@ describe("real PostgreSQL API", () => {
     expect(await db.workspace.count({where:{name:'Should not exist'}})).toBe(0);
   });
   it("enforces temporary-password setup and rotates the session", async () => {
-    const created = await api.post(`/api/v1/workspaces/${wid}/employees`).set(auth(owner.token)).send({fullName: "New Employee", email: `employee_${suffix}@integration.test`, designation: "Developer", department: "Engineering"});
+    const created = await api.post(`/api/v1/workspaces/${wid}/employees`).set(auth(owner.token)).send({fullName: "New Employee", username:`employee_login_${suffix}`, temporaryPassword:"Temporary passphrase 123!", email: `employee_${suffix}@integration.test`, designation: "Developer", department: "Engineering"});
     expect(created.status).toBe(201);
+    expect(created.body.member.user.username).toBe(`employee_login_${suffix}`);
+    expect(created.body.temporaryPassword).toBe("Temporary passphrase 123!");
     expect(created.headers["cache-control"]).toBe("no-store");
     userIds.push(created.body.member.userId);
     const stored=await db.user.findUniqueOrThrow({where:{id:created.body.member.userId},select:{passwordHash:true}});
     expect(stored.passwordHash).toMatch(/^\$argon2id\$/);expect(stored.passwordHash).not.toContain(created.body.temporaryPassword);
-    const login = await api.post('/api/v1/auth/login').send({email: `employee_${suffix}@integration.test`, password: created.body.temporaryPassword, native: true});
+    const login = await api.post('/api/v1/auth/login').send({email: `employee_login_${suffix}`, password: created.body.temporaryPassword, native: true});
     expect(login.status).toBe(200);
     expect(login.body.user.mustChangePassword).toBe(true);
     expect((await api.get('/api/v1/workspaces').set(auth(login.body.token))).status).toBe(403);
+    expect((await api.post('/api/v1/auth/password').set(auth(login.body.token)).send({currentPassword:created.body.temporaryPassword,password:created.body.temporaryPassword,confirmPassword:created.body.temporaryPassword})).status).toBe(400);
+    expect((await api.post('/api/v1/auth/password').set(auth(login.body.token)).send({currentPassword:created.body.temporaryPassword,password,confirmPassword:'does not match'})).status).toBe(400);
     const changed = await api.post('/api/v1/auth/password').set(auth(login.body.token)).send({currentPassword: created.body.temporaryPassword, password, confirmPassword: password});
     expect(changed.status).toBe(200);
     expect(changed.body.token).toBeTruthy();
@@ -117,6 +124,29 @@ describe("real PostgreSQL API", () => {
     expect(reset.status).toBe(200);
     expect((await api.get('/api/v1/workspaces').set(auth(changed.body.token))).status).toBe(401);
     expect((await db.auditLog.count({where:{targetId:created.body.member.userId,action:'employee:password-reset'}}))).toBe(1);
+  });
+  it('delivers project and task assignments over an authenticated Socket.IO connection',async()=>{
+    const socket=connect(`http://127.0.0.1:${(server.address() as AddressInfo).port}`,{auth:{token:viewer.token},transports:['websocket'],extraHeaders:{Origin:'http://localhost:3000'}});
+    const events:any[]=[];
+    let projectId:string|undefined;
+    try {
+      await new Promise<void>((resolve,reject)=>{socket.once('connect',resolve);socket.once('connect_error',reject);});
+      socket.on('notification',event=>events.push(event));
+      const project=await api.post(`/api/v1/workspaces/${wid}/projects`).set(auth(owner.token)).send({name:'Realtime project',memberIds:[viewer.user.id,other.user.id]});
+      expect(project.status).toBe(400);
+      const valid=await api.post(`/api/v1/workspaces/${wid}/projects`).set(auth(owner.token)).send({name:'Realtime project',memberIds:[owner.user.id]});
+      projectId=valid.body.id;
+      const added=await api.post(`/api/v1/workspaces/${wid}/members`).set(auth(owner.token)).send({email:viewer.user.email,role:'MEMBER'});
+      expect(added.status).toBe(201);
+      // Rejoin after membership creation; the initial unauthorized join is tested separately.
+      await new Promise<void>((resolve,reject)=>socket.emit('workspace:join',wid,(result:any)=>result?.ok?resolve():reject(Error('Join failed'))));
+      const assigned=await api.patch(`/api/v1/workspaces/${wid}/projects/${projectId}`).set(auth(owner.token)).send({memberIds:[viewer.user.id,owner.user.id]});
+      expect(assigned.status).toBe(200);
+      const task=await api.post(`/api/v1/workspaces/${wid}/tasks`).set(auth(owner.token)).send({title:'Realtime assignment',projectId,assigneeIds:[viewer.user.id]});
+      expect(task.status).toBe(201);
+      await vi.waitFor(()=>{expect(events.some(e=>e.type==='PROJECT_ASSIGNED')).toBe(true);expect(events.some(e=>e.type==='TASK_ASSIGNED')).toBe(true);});
+      expect((await api.get(`/api/v1/workspaces/${wid}/tasks/${task.body.id}`).set(auth(viewer.token))).status).toBe(200);
+    }finally{socket.disconnect();if(projectId)await api.delete(`/api/v1/workspaces/${wid}/projects/${projectId}`).set(auth(owner.token));await db.workspaceMember.deleteMany({where:{workspaceId:wid,userId:viewer.user.id}});}
   });
   it('scopes project manager operations and reports to assigned projects',async()=>{
     const created=await api.post(`/api/v1/workspaces/${wid}/employees`).set(auth(owner.token)).send({fullName:'Manager',email:`manager_${suffix}@integration.test`,role:'PROJECT_MANAGER'});

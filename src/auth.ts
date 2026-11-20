@@ -102,17 +102,17 @@ const dummyHash = argon2.hash(token(), { type: argon2.argon2id });
 auth.post("/login", limit, async (req, res) => {
   const data = z
     .object({
-      email,
+      email: z.string().trim().toLowerCase().min(3).max(254),
       password: z.string().max(128),
       native: z.boolean().default(false),
     })
     .parse(req.body);
-  const u = await db.user.findUnique({ where: { email: data.email } });
+  const u = await db.user.findUnique({ where: data.email.includes("@") ? { email: data.email } : { username: data.email } });
   const valid = await argon2.verify(
     u?.passwordHash || (await dummyHash),
     data.password,
   );
-  if (!u || !valid) fail(401, "Email or password is incorrect.");
+  if (!u || !valid) fail(401, "Username, email or password is incorrect.");
   const { passwordHash, platformAdmin, ...user } = u!;
   res.json({
     user,
@@ -149,7 +149,7 @@ auth.get("/sessions", authenticate, async (req, res) =>
 auth.post("/password", authenticate, async (req, res) => {
   const data = z
     .object({
-      currentPassword: z.string(),
+      currentPassword: z.string().max(128),
       password,
       confirmPassword: z.string(),
     })
@@ -161,10 +161,12 @@ auth.post("/password", authenticate, async (req, res) => {
   });
   if (!(await argon2.verify(u.passwordHash, data.currentPassword)))
     fail(400, "Current password is incorrect.");
+  if (await argon2.verify(u.passwordHash, data.password))
+    fail(400, "Choose a different password from your temporary or current password.");
   const newToken = token();
   await db.$transaction([
     db.user.update({
-      where: { id: u.id },
+      where: { id: u.id, passwordHash: u.passwordHash },
       data: { passwordHash: await argon2.hash(data.password, { type: argon2.argon2id }), mustChangePassword: false },
     }),
     db.session.deleteMany({ where: { userId: u.id } }),

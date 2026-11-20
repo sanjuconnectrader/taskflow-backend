@@ -7,7 +7,7 @@ import type { Server } from "socket.io";
 import type {Prisma} from '@prisma/client';
 import argon2 from "argon2";
 import { token } from "./security.js";
-import { email, dateValue } from "./validation.js";
+import { email, dateValue, password } from "./validation.js";
 export function workspaceRoutes(io: Server) {
   const r = Router();
   r.use(authenticate);
@@ -134,6 +134,8 @@ export function workspaceRoutes(io: Server) {
     await admin(res);
     const data = z.object({
       fullName: z.string().trim().min(1).max(100), email,
+      username: z.string().trim().toLowerCase().regex(/^[a-z0-9_]{3,32}$/).optional(),
+      temporaryPassword: password.optional(),
       designation: z.string().trim().max(100).optional(),
       department: z.string().trim().max(100).optional(),
       phone: z.string().trim().max(40).optional(),
@@ -141,11 +143,11 @@ export function workspaceRoutes(io: Server) {
       employmentStatus: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE"),
       role: z.enum(["EMPLOYEE", "PROJECT_MANAGER", "TEAM_LEAD"]).default("EMPLOYEE"),
     }).parse(req.body);
-    const temporaryPassword = token();
+    const temporaryPassword = data.temporaryPassword || token();
     const passwordHash = await argon2.hash(temporaryPassword, {type: argon2.argon2id});
     const member = await db.$transaction(async tx => {
       const user = await tx.user.create({data: {
-        username: `employee_${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`,
+        username: data.username || `employee_${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`,
         displayName: data.fullName, email: data.email, passwordHash, mustChangePassword: true,
       }, select: userSelect});
       const result = await tx.workspaceMember.create({data: {
@@ -158,6 +160,7 @@ export function workspaceRoutes(io: Server) {
       return result;
     });
     res.setHeader("Cache-Control", "no-store");
+    await activity(res, "employee:created", member.user.displayName);
     res.status(201).json({member, temporaryPassword});
   });
   r.post("/:wid/employees/:uid/reset-password", async (req, res) => {

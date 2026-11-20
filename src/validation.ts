@@ -2,7 +2,7 @@ import { z } from "zod";
 export const id = z.uuid();
 export const password = z
   .string()
-  .min(12, "Use at least 12 characters.")
+  .min(8, "Use at least 8 characters.")
   .max(128);
 export const email = z.email().trim().toLowerCase();
 export const date = z

@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { authenticate, fail } from './security.js';
 
 type Asset = { id:number; name:string; size:number };
-type Release = { tag_name:string; draft:boolean; prerelease:boolean; assets:Asset[] };
+type Release = { body?:string; published_at?:string; tag_name:string; draft:boolean; prerelease:boolean; assets:Asset[] };
 const repos = {desktop:'sanjuconnectrader/taskflow-desktop',mobile:'sanjuconnectrader/taskflow-mobile'} as const;
 type Platform = keyof typeof repos;
 const tickets = new Map<string,{asset:Asset; expires:number}>();
@@ -54,7 +54,7 @@ updates.get('/:platform',async(req,res)=>{
   if(!Object.hasOwn(repos,platform)) fail(404,'Platform not supported.');
   const {release,artifact}=await latest(platform);
   res.setHeader('Cache-Control','no-store');
-  res.json({version:release.tag_name.slice(1), artifact:artifact.name});
+  res.json({version:release.tag_name.slice(1), artifact:artifact.name, notes:release.body?.slice(0,10000) || "Improvements and bug fixes.", publishedAt:release.published_at});
 });
 updates.post('/mobile/ticket',async(_req,res)=>{
   const {artifact}=await latest('mobile');
